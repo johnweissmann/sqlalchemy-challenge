@@ -26,32 +26,6 @@ station = Base.classes.station
 # Create our session (link) from Python to the DB
 session = Session(engine)
 
-# Precipitation queries
-last_date = dt.date(2017, 8, 23)
-one_year_ago = last_date - dt.timedelta(days= 365)
-last_year_query = session.query(measurement.date, measurement.prcp).filter(measurement.date >= one_year_ago).all()
-df = pd.DataFrame(last_year_query, columns=['Date','Precipitation (inches)'])
-df = df.sort_values('Date')
-df.set_index('Date', inplace= True)
-# Create the dictionary to later jsonify
-precipitation_dict = df.to_dict()
-
-# Stations
-station = session.query(station.station).group_by(station.station).all()
-station_df = pd.DataFrame(station)
-station_dict = station_df.to_dict()
-
-# Tobs!
-last_date_519281 = dt.date(2017,8,18)
-past_year_519281 = last_date_519281 - dt.timedelta(days=365)
-past_year_query_519281 = session.query(measurement.date, measurement.tobs).\
-    filter(measurement.date >= past_year_519281, measurement.station == 'USC00519281').all()
-
-df_519281 = pd.DataFrame(past_year_query_519281, columns=['Date','Temperature'])
-df_519281 = df_519281.sort_values('Date')
-df_519281.set_index('Date', inplace= True)
-dict_519281 = df_519281.to_dict()
-
 #################################################
 # Flask Setup
 #################################################
@@ -77,14 +51,38 @@ def welcome():
 
 @app.route("/api/v1.0/precipitation")
 def precipitation():
+    # Precipitation queries
+    last_date = dt.date(2017, 8, 23)
+    one_year_ago = last_date - dt.timedelta(days= 365)
+    last_year_query = session.query(measurement.date, measurement.prcp).filter(measurement.date >= one_year_ago).all()
+    df = pd.DataFrame(last_year_query, columns=['Date','Precipitation (inches)'])
+    df = df.sort_values('Date')
+    df.set_index('Date', inplace= True)
+    # Create the dictionary to later jsonify
+    precipitation_dict = df.to_dict()
+    session.close()
     return jsonify(precipitation_dict)
 
 @app.route("/api/v1.0/stations")
 def stations():
+    stations = session.query(station.station).group_by(station.station).all()
+    station_df = pd.DataFrame(stations)
+    station_dict = station_df.to_dict()
+    session.close()
     return jsonify(station_dict)
 
 @app.route("/api/v1.0/tobs")
 def tobs():
+    last_date_519281 = dt.date(2017,8,18)
+    past_year_519281 = last_date_519281 - dt.timedelta(days=365)
+    past_year_query_519281 = session.query(measurement.date, measurement.tobs).\
+        filter(measurement.date >= past_year_519281, measurement.station == 'USC00519281').all()
+    df_519281 = pd.DataFrame(past_year_query_519281, columns=['Date','Temperature'])
+    df_519281 = df_519281.sort_values('Date')
+    df_519281.set_index('Date', inplace= True)
+    dict_519281 = df_519281.to_dict()
+
+    session.close()
     return jsonify(dict_519281)
 
 @app.route("/api/v1.0/<start>")
@@ -93,13 +91,24 @@ def start_end(start=None,end=None):
     sel = [func.min(measurement.tobs), func.avg(measurement.tobs), func.max(measurement.tobs)]
 
     if not end:
-        start = dt.datetime.strptime(start, "%m%d%Y")
+        start = dt.datetime.strptime(str(start), "%m%d%Y")
         results = session.query(*sel).\
             filter(measurement.date >= start).all()
 
         session.close()
 
         temps = list(np.ravel(results))
+        return jsonify(temps=temps)
+
+    start = dt.datetime.strptime(str(start), "%m%d%Y")
+    end = dt.datetime.strptime(str(end),"%m%d%Y")
+    results = session.query(*sel).\
+        filter(measurement.date >= start).\
+        filter(measurement.date <= end).all()
+
+    session.close()
+
+    temps = list(np.ravel(results))
     return jsonify(temps=temps)
 
 if __name__ == "__main__":
